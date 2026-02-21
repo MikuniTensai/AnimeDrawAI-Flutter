@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:io';
 
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/drawai_repository.dart';
@@ -16,6 +19,47 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  String _appVersion = "1.0.34";
+  String _deviceModel = "Unknown";
+  String _osVersion = "Unknown";
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAppInfo();
+  }
+
+  Future<void> _loadAppInfo() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final deviceInfo = DeviceInfoPlugin();
+
+      String model = "Unknown";
+      String os = "Unknown";
+
+      if (Platform.isAndroid) {
+        final androidInfo = await deviceInfo.androidInfo;
+        model = androidInfo.model;
+        os = "Android ${androidInfo.version.release}";
+      } else if (Platform.isIOS) {
+        final iosInfo = await deviceInfo.iosInfo;
+        model = iosInfo.utsname.machine;
+        os = "iOS ${iosInfo.systemVersion}";
+      }
+
+      if (mounted) {
+        setState(() {
+          _appVersion = packageInfo.version;
+          _deviceModel = model;
+          _osVersion = os;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error loading app info: $e");
+      // Fallback to defaults or hardcoded values if plugin fails
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final authRepo = Provider.of<AuthRepository>(context, listen: false);
@@ -115,27 +159,49 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
 
           const Divider(),
-          _buildSectionHeader("Support & Community"),
+          _buildSectionHeader("About & Legal"),
           ListTile(
-            leading: const Icon(Icons.telegram, color: Color(0xFF0088cc)),
-            title: const Text("Telegram Group"),
-            onTap: () => _launchUrl("https://t.me/animedrawai"),
+            leading: const Icon(Icons.privacy_tip, color: Colors.blue),
+            title: const Text("Privacy Policy"),
+            subtitle: const Text("Read our privacy terms"),
+            onTap: () => _launchUrl(
+              "https://docs.google.com/document/d/1QE2DRsvw2p0_bpwM8gbGGN2ySVYo92UOIj7vSUXJUhk/edit?usp=sharing",
+            ),
           ),
           ListTile(
-            leading: const Icon(Icons.chat, color: Color(0xFF25D366)),
-            title: const Text("WhatsApp Support"),
-            onTap: () => _launchUrl("https://wa.me/yourwhatsapp"),
+            leading: const Icon(Icons.description, color: Colors.blueGrey),
+            title: const Text("Terms of Service"),
+            subtitle: const Text("Read our terms of use"),
+            onTap: () => _launchUrl(
+              "https://docs.google.com/document/d/YOUR_TERMS_DOCUMENT_ID/edit?usp=sharing",
+            ),
+          ),
+
+          const Divider(),
+          _buildSectionHeader("Support"),
+          ListTile(
+            leading: const Icon(Icons.help_outline, color: Colors.blue),
+            title: const Text("Help & Support"),
+            subtitle: const Text("Get help or send feedback"),
+            onTap: () => _launchEmailSupport(),
           ),
           ListTile(
-            leading: const Icon(Icons.article, color: Colors.blueGrey),
-            title: const Text("Release Notes"),
+            leading: const Icon(Icons.star_rate, color: Colors.amber),
+            title: const Text("Rate App"),
+            subtitle: const Text("Rate us on the Play Store"),
+            onTap: () => _launchUrl(
+              "https://play.google.com/store/apps/details?id=com.doyouone.drawai",
+              isExternal: true,
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.info_outline, color: Colors.grey),
+            title: const Text("App Version"),
+            subtitle: Text(_appVersion),
+            trailing: const Icon(Icons.chevron_right),
             onTap: () => Navigator.pushNamed(context, '/news'),
           ),
-          const ListTile(
-            leading: Icon(Icons.info_outline),
-            title: Text("App Version"),
-            trailing: Text("1.0.0+1"),
-          ),
+
           ListTile(
             leading: const Icon(Icons.delete_forever, color: Colors.red),
             title: const Text(
@@ -556,17 +622,97 @@ class _SettingsScreenState extends State<SettingsScreen> {
     BuildContext context,
     GalleryRepository galleryRepo,
   ) async {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text("Exporting images to device gallery...")),
-    );
-
-    await galleryRepo.exportGallery();
-
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Gallery exported successfully!")),
-      );
+    // 1. Check if gallery is empty first
+    final images = await galleryRepo.getGenerationsStream().first;
+    if (!context.mounted) return;
+    if (images.isEmpty) {
+      if (context.mounted) {
+        _showSuccessDialog(
+          context,
+          "Gallery Empty",
+          "There are no images in your local gallery to export.",
+        );
+      }
+      return;
     }
+
+    int current = 0;
+    int total = 0;
+    bool isExportStarted = false;
+    bool isComplete = false;
+
+    // Show progress dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            void updateProgress(int c, int t) {
+              if (context.mounted) {
+                setDialogState(() {
+                  current = c;
+                  total = t;
+                });
+              }
+            }
+
+            if (!isExportStarted) {
+              isExportStarted = true;
+              galleryRepo
+                  .exportGallery(
+                    onProgress: (c, t) {
+                      updateProgress(c, t);
+                      if (c == t && t > 0) {
+                        isComplete = true;
+                      }
+                    },
+                  )
+                  .then((_) async {
+                    if (isComplete && context.mounted) {
+                      Navigator.pop(context); // Close progress dialog
+                      await _showSuccessDialog(
+                        context,
+                        "Export Complete",
+                        "Successfully exported images to your device's Photos/Gallery app.\n\nNote: Your internal Draw AI gallery has been cleared to save space.",
+                      );
+                      await galleryRepo.clearGallery();
+                    }
+                  })
+                  .catchError((e) {
+                    if (context.mounted) {
+                      Navigator.pop(context); // Close progress dialog
+                      _showErrorDialog(context, "Export failed: $e");
+                    }
+                  });
+            }
+
+            return AlertDialog(
+              title: const Text("Exporting Gallery"),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text(
+                    total > 0
+                        ? "Exporting $current / $total images..."
+                        : "Preparing export...",
+                  ),
+                ],
+              ),
+              actions: [
+                if (isComplete)
+                  TextButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text("Done"),
+                  ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   void _showLinkAccountOptions(BuildContext context, AuthRepository auth) {
@@ -576,15 +722,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  void _launchUrl(String url) async {
+  void _launchUrl(String url, {bool isExternal = false}) async {
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
+      await launchUrl(
+        uri,
+        mode: isExternal
+            ? LaunchMode.externalApplication
+            : LaunchMode.platformDefault,
+      );
     }
   }
 
-  void _showSuccessDialog(BuildContext context, String title, String message) {
-    showDialog(
+  void _launchEmailSupport() async {
+    final Uri emailLaunchUri = Uri(
+      scheme: 'mailto',
+      path: 'nitedreamworks@gmail.com',
+      queryParameters: {
+        'subject': 'Draw AI - Support Request',
+        'body':
+            '\n\n---\nApp Version: $_appVersion\nDevice: $_deviceModel\nOS: $_osVersion\nPlatform: Flutter',
+      },
+    );
+
+    if (await canLaunchUrl(emailLaunchUri)) {
+      await launchUrl(emailLaunchUri);
+    }
+  }
+
+  Future<void> _showSuccessDialog(
+    BuildContext context,
+    String title,
+    String message,
+  ) async {
+    return showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: Text(title),

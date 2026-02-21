@@ -100,21 +100,7 @@ class ApiService {
     return GenerateResponse.fromJson(response.data);
   }
 
-  Future<GenerateResponse> makeBackground({
-    Map<String, dynamic> options = const {},
-  }) async {
-    final response = await _dio.post("make-background", data: options);
-    return GenerateResponse.fromJson(response.data);
-  }
-
-  Future<GenerateResponse> makeBackgroundAdvanced({
-    Map<String, dynamic> options = const {},
-  }) async {
-    final response = await _dio.post("make-background-advanced", data: options);
-    return GenerateResponse.fromJson(response.data);
-  }
-
-  // Character Management
+  // Daily Rewards
   Future<Map<String, dynamic>> createCharacter(
     Map<String, dynamic> request,
   ) async {

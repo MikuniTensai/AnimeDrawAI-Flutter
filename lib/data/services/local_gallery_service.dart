@@ -5,6 +5,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
+import 'package:gal/gal.dart';
+import 'package:dio/dio.dart';
 import '../models/gallery_model.dart';
 
 class LocalGalleryService {
@@ -105,18 +107,47 @@ class LocalGalleryService {
     }
   }
 
-  Future<void> exportAllToGallery() async {
+  Future<void> exportAllToGallery({
+    Function(int current, int total)? onProgress,
+  }) async {
     try {
       final images = await getAllImages();
-      // In a real implementation with gal or image_gallery_saver,
-      // we would loop through and save each image.
-      // For now, we'll log the action and return success.
-      debugPrint("Exporting ${images.length} images to device gallery...");
+      if (images.isEmpty) return;
+
+      // Ensure we have permission
+      if (!await Gal.hasAccess()) {
+        await Gal.requestAccess();
+      }
+
+      final dio = Dio();
+      int current = 0;
+      final total = images.length;
+
       for (final img in images) {
-        debugPrint("Exporting: ${img.imageUrl}");
+        try {
+          final imageUrl = img.imageUrl;
+          if (imageUrl.isEmpty) continue;
+
+          // Download image bytes
+          final response = await dio.get(
+            imageUrl,
+            options: Options(responseType: ResponseType.bytes),
+          );
+
+          if (response.statusCode == 200) {
+            final Uint8List bytes = Uint8List.fromList(response.data);
+            await Gal.putImageBytes(bytes, name: "AnimeDrawAI_${img.id}");
+          }
+        } catch (e) {
+          debugPrint("Error exporting image ${img.id}: $e");
+        }
+
+        current++;
+        onProgress?.call(current, total);
       }
     } catch (e) {
       debugPrint("Error exporting gallery: $e");
+      rethrow;
     }
   }
 

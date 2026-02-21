@@ -175,6 +175,13 @@ class DrawAiRepository {
     int? seed,
     int? width,
     int? height,
+    String? ckptName,
+    int? steps,
+    double? cfg,
+    String? samplerName,
+    String? scheduler,
+    double? denoise,
+    String? upscaleMethod,
     Function(String, TaskStatusResponse?)? onStatusUpdate,
   }) async {
     try {
@@ -188,6 +195,13 @@ class DrawAiRepository {
         seed: seed,
         width: width,
         height: height,
+        ckptName: ckptName,
+        steps: steps,
+        cfg: cfg,
+        samplerName: samplerName,
+        scheduler: scheduler,
+        denoise: denoise,
+        upscaleMethod: upscaleMethod,
       );
 
       final GenerateResponse response;
@@ -290,11 +304,29 @@ class DrawAiRepository {
           );
           break;
         case 'make_background':
-          response = await _apiService.makeBackground(options: options);
-          break;
+          return await generateAndWait(
+            positivePrompt: options['prompt'] ?? "",
+            workflow: "make_background_v1",
+            userId: FirebaseAuth.instance.currentUser?.uid ?? "",
+            width: int.tryParse(options['width']?.toString() ?? ""),
+            height: int.tryParse(options['height']?.toString() ?? ""),
+            seed: int.tryParse(options['seed']?.toString() ?? ""),
+            onStatusUpdate: onStatusUpdate,
+          );
         case 'make_background_advanced':
-          response = await _apiService.makeBackgroundAdvanced(options: options);
-          break;
+          return await generateAndWait(
+            positivePrompt: options['positive_prompt'] ?? "",
+            negativePrompt: options['negative_prompt'] ?? "",
+            workflow: "make_background_v2",
+            userId: FirebaseAuth.instance.currentUser?.uid ?? "",
+            width: int.tryParse(options['width']?.toString() ?? ""),
+            height: int.tryParse(options['height']?.toString() ?? ""),
+            seed: int.tryParse(options['seed']?.toString() ?? ""),
+            cfg: double.tryParse(options['cfg_scale']?.toString() ?? ""),
+            steps: int.tryParse(options['steps']?.toString() ?? ""),
+            ckptName: options['ckpt_name']?.toString(),
+            onStatusUpdate: onStatusUpdate,
+          );
         default:
           throw Exception("Unknown tool type: $toolType");
       }

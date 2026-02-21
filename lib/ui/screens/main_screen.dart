@@ -18,6 +18,7 @@ import 'news_screen.dart'; // Added
 import 'usage_statistics_screen.dart'; // Added
 
 import '../components/app_drawer.dart';
+import '../components/animated_bottom_navigation.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
@@ -179,29 +180,9 @@ class _MainScreenState extends State<MainScreen> {
             onNavigate: _onDrawerNavigate,
           ),
           body: _buildBody(navProvider),
-          bottomNavigationBar: BottomNavigationBar(
+          bottomNavigationBar: AnimatedBottomNavigation(
             currentIndex: navProvider.currentIndex,
             onTap: (index) => navProvider.setIndex(index),
-            type: BottomNavigationBarType.fixed,
-            items: const [
-              BottomNavigationBarItem(icon: Icon(Icons.home), label: "Home"),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.search),
-                label: "Explore",
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.photo_library),
-                label: "Gallery",
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.chat_bubble_outline),
-                label: "Chat",
-              ),
-              BottomNavigationBarItem(
-                icon: Icon(Icons.person),
-                label: "Profile",
-              ),
-            ],
           ),
         );
       },

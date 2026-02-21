@@ -3,9 +3,14 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import 'dart:io';
 import 'dart:math' as math;
+import '../../../services/ad_helper.dart';
+import '../../../data/providers/navigation_provider.dart';
 import '../../../data/repositories/drawai_repository.dart';
 import '../../../data/repositories/auth_repository.dart';
-import '../../../data/models/generation_model.dart';
+import '../../../data/repositories/generation_repository.dart';
+import '../../../data/utils/content_moderator.dart';
+import '../../components/generation_loading_overlay.dart';
+import '../../utils/content_moderator_helper.dart';
 import '../../components/gem_indicator.dart';
 
 class FaceRestoreScreen extends StatefulWidget {
@@ -21,6 +26,11 @@ class _FaceRestoreScreenState extends State<FaceRestoreScreen> {
   String _statusMessage = "";
   String? _errorMessage;
   final ImagePicker _picker = ImagePicker();
+  double? _progress;
+  bool _isQueued = false;
+  int? _queuePosition;
+  int? _queueTotal;
+  String? _queueInfo;
 
   // Face Restore Options
   double _denoise = 0.5;
@@ -117,13 +127,45 @@ class _FaceRestoreScreenState extends State<FaceRestoreScreen> {
   Future<void> _processImage() async {
     if (_selectedImage == null) return;
 
+    // Preload Ad
+    AdHelper.preloadInterstitialAd();
+
     setState(() {
       _isProcessing = true;
       _errorMessage = null;
-      _statusMessage = "Processing...";
+      _statusMessage = "Uploading image...";
+      _progress = null;
+      _isQueued = false;
     });
 
     try {
+      final authRepo = Provider.of<AuthRepository>(context, listen: false);
+      final userId = authRepo.currentUser?.uid;
+
+      if (userId != null) {
+        final genRepo = Provider.of<GenerationRepository>(
+          context,
+          listen: false,
+        );
+        final limit = await genRepo.getGenerationLimit(userId);
+
+        if (!limit.moreEnabled) {
+          final blockedPositive = ContentModerator.checkPrompt(_positivePrompt);
+          final blockedNegative = ContentModerator.checkPrompt(_negativePrompt);
+          final allBlocked = {...blockedPositive, ...blockedNegative}.toList();
+
+          if (allBlocked.isNotEmpty) {
+            if (mounted) {
+              setState(() => _isProcessing = false);
+              ContentModeratorHelper.showModerationWarning(context, allBlocked);
+            }
+            return;
+          }
+        }
+      }
+
+      if (!mounted) return;
+
       final repository = context.read<DrawAiRepository>();
       final fileName = _selectedImage!.path.split('/').last;
       final imageBytes = await _selectedImage!.readAsBytes();
@@ -140,22 +182,43 @@ class _FaceRestoreScreenState extends State<FaceRestoreScreen> {
         "cfg": _cfg.toString(),
       };
 
-      final result = await repository.executeToolAndWait(
+      await repository.executeToolAndWait(
         toolType: 'face_restore',
         imageBytes: imageBytes,
         filename: fileName,
         options: options,
         onStatusUpdate: (message, status) {
-          setState(() => _statusMessage = message);
+          if (mounted) {
+            setState(() {
+              _statusMessage = message;
+              if (status != null) {
+                _progress = (status.progress ?? 0) / 100.0;
+                _isQueued = status.status == "queued";
+                _queuePosition = status.queuePosition;
+                _queueTotal = status.queueTotal;
+                _queueInfo = status.queueInfo;
+              }
+            });
+          }
         },
       );
 
       if (mounted) {
         setState(() {
-          _isProcessing = false;
-          _statusMessage = "";
+          _statusMessage = "Success!";
+          _progress = 1.0;
         });
-        _showSuccessDialog(result);
+
+        // Delay to show success state briefly
+        await Future.delayed(const Duration(milliseconds: 1000));
+
+        if (mounted) {
+          setState(() {
+            _isProcessing = false;
+          });
+
+          _handlePostProcessNavigation();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -167,25 +230,37 @@ class _FaceRestoreScreenState extends State<FaceRestoreScreen> {
     }
   }
 
-  void _showSuccessDialog(TaskStatusResponse result) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Success"),
-        content: const Text(
-          "Face restoration complete! Check your gallery for the enhanced version.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            child: const Text("OK"),
-          ),
-        ],
-      ),
-    );
+  void _handlePostProcessNavigation() async {
+    void navigateToGallery() {
+      if (mounted) {
+        Provider.of<NavigationProvider>(context, listen: false).setIndex(2);
+        Navigator.pop(context);
+      }
+    }
+
+    try {
+      final authRepo = Provider.of<AuthRepository>(context, listen: false);
+      final genRepo = Provider.of<GenerationRepository>(context, listen: false);
+      final userId = authRepo.currentUser?.uid;
+
+      if (userId != null) {
+        final limit = await genRepo.getGenerationLimit(userId);
+        final isPremium =
+            limit.isPremium == true ||
+            limit.subscriptionType == 'basic' ||
+            limit.subscriptionType == 'pro';
+
+        if (!isPremium) {
+          AdHelper.showAdAfterSave(onCompleted: navigateToGallery);
+        } else {
+          navigateToGallery();
+        }
+      } else {
+        navigateToGallery();
+      }
+    } catch (e) {
+      navigateToGallery();
+    }
   }
 
   @override
@@ -194,48 +269,61 @@ class _FaceRestoreScreenState extends State<FaceRestoreScreen> {
 
     return Scaffold(
       backgroundColor: theme.colorScheme.surface,
-      body: SafeArea(
-        child: Column(
-          children: [
-            _buildHeader(context, theme),
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  children: [
-                    const SizedBox(height: 16),
-                    _buildUploadCard(theme),
-                    if (_errorMessage != null) _buildErrorCard(theme),
-                    const SizedBox(height: 16),
-                    _buildConfigCard(theme),
-                    const SizedBox(height: 24),
-                    if (_isProcessing) _buildProcessingCard(theme),
-                    if (!_isProcessing && _selectedImage != null)
-                      SizedBox(
-                        width: double.infinity,
-                        height: 56,
-                        child: ElevatedButton(
-                          onPressed: _processImage,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: theme.colorScheme.primary,
-                            foregroundColor: theme.colorScheme.onPrimary,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(24),
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Column(
+              children: [
+                _buildHeader(context, theme),
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
+                      children: [
+                        const SizedBox(height: 16),
+                        _buildUploadCard(theme),
+                        if (_errorMessage != null) _buildErrorCard(theme),
+                        const SizedBox(height: 16),
+                        _buildConfigCard(theme),
+                        const SizedBox(height: 24),
+                        if (!_isProcessing && _selectedImage != null)
+                          SizedBox(
+                            width: double.infinity,
+                            height: 56,
+                            child: ElevatedButton(
+                              onPressed: _processImage,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: theme.colorScheme.primary,
+                                foregroundColor: theme.colorScheme.onPrimary,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                              ),
+                              child: const Text(
+                                "Restore Face",
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
                             ),
                           ),
-                          child: const Text(
-                            "Restore Face",
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 32),
-                  ],
+                        const SizedBox(height: 32),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+          if (_isProcessing)
+            GenerationLoadingOverlay(
+              isGenerating: _isProcessing,
+              statusMessage: _statusMessage,
+              progress: _progress,
+              isQueued: _isQueued,
+              queuePosition: _queuePosition,
+              queueTotal: _queueTotal,
+              queueInfo: _queueInfo,
+            ),
+        ],
       ),
     );
   }
@@ -563,33 +651,6 @@ class _FaceRestoreScreenState extends State<FaceRestoreScreen> {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildProcessingCard(ThemeData theme) {
-    return Card(
-      color: theme.colorScheme.secondaryContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-            const SizedBox(width: 16),
-            Text(
-              _statusMessage.isEmpty ? "Processing..." : _statusMessage,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: theme.colorScheme.onSecondaryContainer,
-              ),
-            ),
-          ],
         ),
       ),
     );

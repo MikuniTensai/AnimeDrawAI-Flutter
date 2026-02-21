@@ -10,10 +10,12 @@ import '../../../data/repositories/generation_repository.dart';
 import '../../../data/providers/navigation_provider.dart';
 import '../../../data/utils/prompt_templates.dart';
 import '../../../data/utils/content_moderator.dart';
+import '../../utils/content_moderator_helper.dart';
 import '../../../services/ad_helper.dart'; // Added for AdMob
 import '../../../services/ad_manager.dart'; // Replaces RewardedAdHelper
 import '../content/vision_screen.dart'; // Added
 import '../../components/generation_limit_badge.dart';
+import '../../components/generation_loading_overlay.dart';
 
 class GenerateScreen extends StatefulWidget {
   final String workflowId;
@@ -133,7 +135,9 @@ class _GenerateScreenState extends State<GenerateScreen> {
           _positivePromptController.text,
         );
         if (blockedWords.isNotEmpty) {
-          _showModerationWarning(blockedWords);
+          if (mounted) {
+            ContentModeratorHelper.showModerationWarning(context, blockedWords);
+          }
           return;
         }
       }
@@ -270,49 +274,6 @@ class _GenerateScreenState extends State<GenerateScreen> {
         ).showSnackBar(SnackBar(content: Text("Error: $e")));
       }
     }
-  }
-
-  void _showModerationWarning(List<String> blockedWords) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        icon: const Icon(Icons.security, size: 48, color: Colors.red),
-        title: const Text("Sensitive Content Detected"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              "Your prompt contains words that may violate our safety guidelines:",
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              children: blockedWords
-                  .map(
-                    (word) => Chip(
-                      label: Text(word, style: const TextStyle(fontSize: 12)),
-                      backgroundColor: Colors.red.withValues(alpha: 0.1),
-                    ),
-                  )
-                  .toList(),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              "Please remove these words to proceed.",
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        actions: [
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("I Understand"),
-          ),
-        ],
-      ),
-    );
   }
 
   void _showLimitExceededDialog(String message, int remaining) {
@@ -767,7 +728,15 @@ class _GenerateScreenState extends State<GenerateScreen> {
               ),
 
               // 3. Loading Overlay
-              if (_isGenerating) _buildLoadingOverlay(context, theme),
+              GenerationLoadingOverlay(
+                isGenerating: _isGenerating,
+                statusMessage: _statusMessage,
+                isQueued: _isQueued,
+                progress: _progress,
+                queuePosition: _queuePosition,
+                queueTotal: _queueTotal,
+                queueInfo: _queueInfo,
+              ),
             ],
           ),
         );
@@ -1134,94 +1103,6 @@ class _GenerateScreenState extends State<GenerateScreen> {
                       ),
               ),
             ),
-    );
-  }
-
-  Widget _buildLoadingOverlay(BuildContext context, ThemeData theme) {
-    // Matches Kotlin LoadingModal logic
-    String title = "Processing";
-    String detail = "Please wait, image is being generated.";
-    String statusInfo = "Processing your request now...";
-
-    if (_isQueued) {
-      title = "Queued";
-      detail = "Your request is in queue, please wait.";
-      if (_queuePosition == 1 && _queueTotal == 1) {
-        statusInfo = "Processing your request now...";
-      } else if ((_queuePosition ?? 0) > 1) {
-        statusInfo = _queueInfo ?? "Position $_queuePosition of $_queueTotal";
-      } else {
-        statusInfo = "Initializing...";
-      }
-    } else if (_progress == null) {
-      title = "Preparing...";
-      detail = "Connecting to server...";
-      statusInfo = "Initializing...";
-    }
-
-    // Override detail if we are downloading
-    if (_statusMessage == "Downloading images...") {
-      detail = "Saving your masterpiece...";
-      statusInfo = "Processing your request now...";
-    }
-
-    return Container(
-      color: Colors.black.withValues(alpha: 0.7),
-      alignment: Alignment.center,
-      child: Material(
-        color: Colors.transparent,
-        child: Container(
-          width: 320,
-          padding: const EdgeInsets.all(24),
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surface,
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
-                blurRadius: 10,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const CircularProgressIndicator(),
-              const SizedBox(height: 16),
-
-              Text(
-                title,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 8),
-              if (detail.isNotEmpty)
-                Text(
-                  detail,
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              const SizedBox(height: 12),
-              Text(
-                statusInfo,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: theme.colorScheme.primary,
-                ),
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }

@@ -4,8 +4,14 @@ import 'dart:ui' as ui;
 import 'dart:typed_data';
 import 'dart:math' as math;
 import 'package:flutter/rendering.dart';
+import '../../../services/ad_helper.dart';
+import '../../../data/providers/navigation_provider.dart';
 import '../../../data/repositories/drawai_repository.dart';
-import '../../../data/models/generation_model.dart';
+import '../../../data/repositories/auth_repository.dart';
+import '../../../data/repositories/generation_repository.dart';
+import '../../../data/utils/content_moderator.dart';
+import '../../utils/content_moderator_helper.dart';
+import '../../components/generation_loading_overlay.dart';
 
 class DrawToImageScreen extends StatefulWidget {
   const DrawToImageScreen({super.key});
@@ -36,6 +42,13 @@ class _DrawToImageScreenState extends State<DrawToImageScreen> {
   bool _isGenerating = false;
   String _statusMessage = "";
 
+  // Progress Tracking
+  double? _progress;
+  bool _isQueued = false;
+  int? _queuePosition;
+  int? _queueTotal;
+  String? _queueInfo;
+
   final GlobalKey _canvasKey = GlobalKey();
 
   Future<void> _captureCanvas() async {
@@ -63,12 +76,49 @@ class _DrawToImageScreenState extends State<DrawToImageScreen> {
   Future<void> _generateImage() async {
     if (_capturedImage == null) return;
 
+    // Preload Ad
+    AdHelper.preloadInterstitialAd();
+
     setState(() {
       _isGenerating = true;
       _statusMessage = "Generating...";
+      _progress = null;
+      _isQueued = false;
+      _queuePosition = null;
+      _queueTotal = null;
+      _queueInfo = null;
     });
 
     try {
+      final authRepo = Provider.of<AuthRepository>(context, listen: false);
+      final userId = authRepo.currentUser?.uid;
+
+      if (userId != null) {
+        final genRepo = Provider.of<GenerationRepository>(
+          context,
+          listen: false,
+        );
+        final limit = await genRepo.getGenerationLimit(userId);
+
+        if (!limit.moreEnabled) {
+          final blockedWords = ContentModerator.checkPrompt(
+            _promptController.text,
+          );
+          if (blockedWords.isNotEmpty) {
+            if (mounted) {
+              setState(() => _isGenerating = false);
+              ContentModeratorHelper.showModerationWarning(
+                context,
+                blockedWords,
+              );
+            }
+            return;
+          }
+        }
+      }
+
+      if (!mounted) return;
+
       final repository = context.read<DrawAiRepository>();
       final options = {
         "positive_prompt": _promptController.text,
@@ -78,19 +128,43 @@ class _DrawToImageScreenState extends State<DrawToImageScreen> {
         "seed": _seed.toString(),
       };
 
-      final result = await repository.executeToolAndWait(
+      await repository.executeToolAndWait(
         toolType: 'draw_to_image',
         imageBytes: _capturedImage!,
         filename: "drawing_${DateTime.now().millisecondsSinceEpoch}.png",
         options: options,
         onStatusUpdate: (message, status) {
-          setState(() => _statusMessage = message);
+          if (mounted) {
+            setState(() {
+              _statusMessage = message;
+              if (status != null) {
+                _progress = (status.progress ?? 0) / 100.0;
+                _isQueued = status.status == "queued";
+                _queuePosition = status.queuePosition;
+                _queueTotal = status.queueTotal;
+                _queueInfo = status.queueInfo;
+              }
+            });
+          }
         },
       );
 
       if (mounted) {
-        setState(() => _isGenerating = false);
-        _showSuccessDialog(result);
+        setState(() {
+          _statusMessage = "Success!";
+          _progress = 1.0;
+        });
+
+        // Delay to show success state briefly
+        await Future.delayed(const Duration(milliseconds: 1000));
+
+        if (mounted) {
+          setState(() {
+            _isGenerating = false;
+          });
+
+          _handlePostProcessNavigation();
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -102,25 +176,37 @@ class _DrawToImageScreenState extends State<DrawToImageScreen> {
     }
   }
 
-  void _showSuccessDialog(TaskStatusResponse result) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Success"),
-        content: const Text(
-          "Your drawing has been reimagined! Check your gallery.",
-        ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              Navigator.pop(context);
-            },
-            child: const Text("OK"),
-          ),
-        ],
-      ),
-    );
+  void _handlePostProcessNavigation() async {
+    void navigateToGallery() {
+      if (mounted) {
+        Provider.of<NavigationProvider>(context, listen: false).setIndex(2);
+        Navigator.pop(context);
+      }
+    }
+
+    try {
+      final authRepo = Provider.of<AuthRepository>(context, listen: false);
+      final genRepo = Provider.of<GenerationRepository>(context, listen: false);
+      final userId = authRepo.currentUser?.uid;
+
+      if (userId != null) {
+        final limit = await genRepo.getGenerationLimit(userId);
+        final isPremium =
+            limit.isPremium == true ||
+            limit.subscriptionType == 'basic' ||
+            limit.subscriptionType == 'pro';
+
+        if (!isPremium) {
+          AdHelper.showAdAfterSave(onCompleted: navigateToGallery);
+        } else {
+          navigateToGallery();
+        }
+      } else {
+        navigateToGallery();
+      }
+    } catch (e) {
+      navigateToGallery();
+    }
   }
 
   // Undo/Redo Logic
@@ -356,133 +442,147 @@ class _DrawToImageScreenState extends State<DrawToImageScreen> {
           icon: const Icon(Icons.arrow_back),
         ),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Column(
+      body: SafeArea(
+        child: Stack(
           children: [
-            if (_capturedImage != null)
-              Container(
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Image.memory(
-                    _capturedImage!,
-                    height: 250,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
-            const SizedBox(height: 24),
-            TextField(
-              controller: _promptController,
-              decoration: InputDecoration(
-                labelText: "What should this become?",
-                hintText: "e.g. A vibrant anime landscape...",
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                filled: true,
-                fillColor: theme.colorScheme.surfaceContainerHighest.withValues(
-                  alpha: 0.3,
-                ),
-              ),
-              maxLines: 3,
-            ),
-            const SizedBox(height: 24),
-            _buildSliderColumn(
-              "Imagination (Denoise)",
-              _denoise,
-              0.1,
-              1.0,
-              (v) => setState(() => _denoise = v),
-              isFloat: true,
-            ),
-            _buildSliderColumn(
-              "Control (CFG)",
-              _cfgScale,
-              1,
-              20,
-              (v) => setState(() => _cfgScale = v),
-              isFloat: true,
-            ),
-            _buildSliderColumn(
-              "Quality (Steps)",
-              _steps.toDouble(),
-              10,
-              50,
-              (v) => setState(() => _steps = v.toInt()),
-            ),
-            const SizedBox(height: 16),
-            // Seed Control
-            Row(
-              children: [
-                const Text(
-                  "Seed",
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
-                ),
-                const Spacer(),
-                SizedBox(
-                  width: 150,
-                  child: TextField(
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 8,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    controller: TextEditingController(text: _seed.toString())
-                      ..selection = TextSelection.collapsed(
-                        offset: _seed.toString().length,
-                      ),
-                    onChanged: (v) =>
-                        setState(() => _seed = int.tryParse(v) ?? _seed),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.refresh),
-                  tooltip: "Randomize Seed",
-                  onPressed: () =>
-                      setState(() => _seed = math.Random().nextInt(1000000000)),
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-            if (_isGenerating)
-              Column(
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Column(
                 children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 16),
-                  Text(_statusMessage),
-                ],
-              )
-            else
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _generateImage,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.colorScheme.primary,
-                    foregroundColor: theme.colorScheme.onPrimary,
-                    elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(28),
+                  if (_capturedImage != null)
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.grey.shade300),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Image.memory(
+                          _capturedImage!,
+                          height: 250,
+                          fit: BoxFit.contain,
+                        ),
+                      ),
                     ),
+                  const SizedBox(height: 24),
+                  TextField(
+                    controller: _promptController,
+                    decoration: InputDecoration(
+                      labelText: "What should this become?",
+                      hintText: "e.g. A vibrant anime landscape...",
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.3),
+                    ),
+                    maxLines: 3,
                   ),
-                  child: const Text(
-                    "Generate Masterpiece",
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  const SizedBox(height: 24),
+                  _buildSliderColumn(
+                    "Imagination (Denoise)",
+                    _denoise,
+                    0.1,
+                    1.0,
+                    (v) => setState(() => _denoise = v),
+                    isFloat: true,
                   ),
-                ),
+                  _buildSliderColumn(
+                    "Control (CFG)",
+                    _cfgScale,
+                    1,
+                    20,
+                    (v) => setState(() => _cfgScale = v),
+                    isFloat: true,
+                  ),
+                  _buildSliderColumn(
+                    "Quality (Steps)",
+                    _steps.toDouble(),
+                    10,
+                    50,
+                    (v) => setState(() => _steps = v.toInt()),
+                  ),
+                  const SizedBox(height: 16),
+                  // Seed Control
+                  Row(
+                    children: [
+                      const Text(
+                        "Seed",
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const Spacer(),
+                      SizedBox(
+                        width: 150,
+                        child: TextField(
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 8,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          controller:
+                              TextEditingController(text: _seed.toString())
+                                ..selection = TextSelection.collapsed(
+                                  offset: _seed.toString().length,
+                                ),
+                          onChanged: (v) =>
+                              setState(() => _seed = int.tryParse(v) ?? _seed),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.refresh),
+                        tooltip: "Randomize Seed",
+                        onPressed: () => setState(
+                          () => _seed = math.Random().nextInt(1000000000),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 32),
+                  if (!_isGenerating)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 56,
+                      child: ElevatedButton(
+                        onPressed: _generateImage,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: theme.colorScheme.primary,
+                          foregroundColor: theme.colorScheme.onPrimary,
+                          elevation: 4,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(28),
+                          ),
+                        ),
+                        child: const Text(
+                          "Generate Masterpiece",
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
               ),
+            ),
+            GenerationLoadingOverlay(
+              isGenerating: _isGenerating,
+              statusMessage: _statusMessage,
+              progress: _progress,
+              isQueued: _isQueued,
+              queuePosition: _queuePosition,
+              queueTotal: _queueTotal,
+              queueInfo: _queueInfo,
+            ),
           ],
         ),
       ),

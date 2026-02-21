@@ -103,8 +103,10 @@ class GalleryRepository {
     } catch (_) {}
   }
 
-  Future<void> exportGallery() async {
-    await _localService.exportAllToGallery();
+  Future<void> exportGallery({
+    Function(int current, int total)? onProgress,
+  }) async {
+    await _localService.exportAllToGallery(onProgress: onProgress);
   }
 
   Future<void> clearGallery() async {
