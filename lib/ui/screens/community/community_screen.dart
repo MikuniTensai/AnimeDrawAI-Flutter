@@ -28,17 +28,6 @@ class _CommunityScreenState extends State<CommunityScreen>
     SortType.myPosts,
   ];
 
-  String _selectedCategory = "All";
-  final List<String> _categories = [
-    "All",
-    "Anime",
-    "Realistic",
-    "Cyberpunk",
-    "Fantasy",
-    "Portrait",
-    "Landscape",
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -87,23 +76,9 @@ class _CommunityScreenState extends State<CommunityScreen>
           labelStyle: const TextStyle(fontWeight: FontWeight.bold),
         ),
       ),
-      body: Column(
-        children: [
-          _buildCategoryChips(),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: _tabs
-                  .map(
-                    (type) => _CommunityFeed(
-                      sortType: type,
-                      category: _selectedCategory,
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        ],
+      body: TabBarView(
+        controller: _tabController,
+        children: _tabs.map((type) => _CommunityFeed(sortType: type)).toList(),
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () {
@@ -128,49 +103,18 @@ class _CommunityScreenState extends State<CommunityScreen>
         return "My Posts";
     }
   }
-
-  Widget _buildCategoryChips() {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: Row(
-        children: _categories.map((category) {
-          final isSelected = _selectedCategory == category;
-          return Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilterChip(
-              selected: isSelected,
-              label: Text(category),
-              onSelected: (selected) {
-                setState(() => _selectedCategory = category);
-              },
-              backgroundColor: Colors.transparent,
-              selectedColor: Theme.of(context).colorScheme.primaryContainer,
-              labelStyle: TextStyle(
-                color: isSelected
-                    ? Theme.of(context).colorScheme.onPrimaryContainer
-                    : null,
-                fontWeight: isSelected ? FontWeight.bold : null,
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
 }
 
 class _CommunityFeed extends StatelessWidget {
   final SortType sortType;
-  final String category;
-  const _CommunityFeed({required this.sortType, required this.category});
+  const _CommunityFeed({required this.sortType});
 
   @override
   Widget build(BuildContext context) {
     final repository = Provider.of<CommunityRepository>(context);
 
     return StreamBuilder<List<CommunityPost>>(
-      stream: repository.getPostsStream(sortBy: sortType, category: category),
+      stream: repository.getPostsStream(sortBy: sortType),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return _buildLoadingGrid();

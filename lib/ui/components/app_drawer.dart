@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'dart:io';
 import 'package:intl/intl.dart';
 import '../../data/providers/settings_provider.dart';
 import '../../data/repositories/auth_repository.dart';
@@ -65,6 +69,12 @@ class AppDrawer extends StatelessWidget {
                   label: "Events & Updates",
                   isSelected: currentRoute == "news",
                   onTap: () => onNavigate("news"),
+                ),
+                _buildDrawerItem(
+                  icon: Icons.help_outline,
+                  label: "Help & Support",
+                  isSelected: false,
+                  onTap: () => _launchEmailSupport(),
                 ),
                 const SizedBox(height: 16),
                 _buildPromoCard(context, theme),
@@ -516,5 +526,48 @@ class AppDrawer extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  void _launchEmailSupport() async {
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final deviceInfo = DeviceInfoPlugin();
+      String model = "Unknown";
+      String os = "Unknown";
+
+      if (Platform.isAndroid) {
+        final androidInfo = await deviceInfo.androidInfo;
+        model = androidInfo.model;
+        os = "Android ${androidInfo.version.release}";
+      } else if (Platform.isIOS) {
+        final iosInfo = await deviceInfo.iosInfo;
+        model = iosInfo.utsname.machine;
+        os = "iOS ${iosInfo.systemVersion}";
+      }
+
+      final Uri emailLaunchUri = Uri(
+        scheme: 'mailto',
+        path: 'nitedreamworks@gmail.com',
+        queryParameters: {
+          'subject': 'Draw AI - Support Request',
+          'body':
+              '\n\n---\nApp Version: ${packageInfo.version}\nDevice: $model\nOS: $os\nPlatform: Flutter',
+        },
+      );
+
+      if (await canLaunchUrl(emailLaunchUri)) {
+        await launchUrl(emailLaunchUri);
+      }
+    } catch (e) {
+      debugPrint("Error launching email: $e");
+      final Uri simpleUri = Uri(
+        scheme: 'mailto',
+        path: 'nitedreamworks@gmail.com',
+        queryParameters: {'subject': 'Support Request'},
+      );
+      if (await canLaunchUrl(simpleUri)) {
+        await launchUrl(simpleUri);
+      }
+    }
   }
 }

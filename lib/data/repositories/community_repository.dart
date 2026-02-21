@@ -73,15 +73,10 @@ class CommunityRepository {
 
   Stream<List<CommunityPost>> getPostsStream({
     SortType sortBy = SortType.popular,
-    String? category,
     int limit = _pageSize,
   }) {
     final userId = _auth.currentUser?.uid;
     Query query = _firestore.collection(_collectionPosts);
-
-    if (category != null && category != "All") {
-      query = query.where("category", isEqualTo: category);
-    }
 
     switch (sortBy) {
       case SortType.popular:

@@ -173,7 +173,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text("Terms of Service"),
             subtitle: const Text("Read our terms of use"),
             onTap: () => _launchUrl(
-              "https://docs.google.com/document/d/YOUR_TERMS_DOCUMENT_ID/edit?usp=sharing",
+              "https://docs.google.com/document/d/1gEmDqw4mS-ILkFMb3CglJwxgA4-lEN-8cwrnmAp_YvM/edit?usp=sharing",
             ),
           ),
 

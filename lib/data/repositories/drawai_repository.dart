@@ -648,6 +648,9 @@ class DrawAiRepository {
   }
 
   String _getLeaderboardDocId(String type) {
+    if (type.startsWith('likes_')) return type;
+    if (type.startsWith('downloads_')) return type;
+
     switch (type) {
       case 'weekly':
         return 'top_creators_weekly';
@@ -662,7 +665,7 @@ class DrawAiRepository {
       case 'rising':
         return 'rising_stars';
       default:
-        return 'top_creators';
+        return type; // Allow direct docId as fallback
     }
   }
 
