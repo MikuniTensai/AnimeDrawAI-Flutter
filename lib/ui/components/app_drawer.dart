@@ -74,7 +74,7 @@ class AppDrawer extends StatelessWidget {
                   icon: Icons.help_outline,
                   label: "Help & Support",
                   isSelected: false,
-                  onTap: () => _launchEmailSupport(),
+                  onTap: () => _launchEmailSupport(context),
                 ),
                 const SizedBox(height: 16),
                 _buildPromoCard(context, theme),
@@ -528,7 +528,7 @@ class AppDrawer extends StatelessWidget {
     );
   }
 
-  void _launchEmailSupport() async {
+  void _launchEmailSupport(BuildContext context) async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final deviceInfo = DeviceInfoPlugin();
@@ -555,8 +555,30 @@ class AppDrawer extends StatelessWidget {
         },
       );
 
+      bool launched = false;
       if (await canLaunchUrl(emailLaunchUri)) {
-        await launchUrl(emailLaunchUri);
+        launched = await launchUrl(
+          emailLaunchUri,
+          mode: LaunchMode.externalApplication,
+        );
+      }
+
+      if (!launched) {
+        // Try fallback without canLaunchUrl check, or show message
+        try {
+          await launchUrl(emailLaunchUri, mode: LaunchMode.externalApplication);
+          launched = true;
+        } catch (_) {
+          debugPrint("Failed to launch deep email URI");
+        }
+      }
+
+      if (!launched && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("No email app found to handle the request"),
+          ),
+        );
       }
     } catch (e) {
       debugPrint("Error launching email: $e");
@@ -565,8 +587,14 @@ class AppDrawer extends StatelessWidget {
         path: 'nitedreamworks@gmail.com',
         queryParameters: {'subject': 'Support Request'},
       );
-      if (await canLaunchUrl(simpleUri)) {
-        await launchUrl(simpleUri);
+      try {
+        await launchUrl(simpleUri, mode: LaunchMode.externalApplication);
+      } catch (e2) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Could not open email app")),
+          );
+        }
       }
     }
   }

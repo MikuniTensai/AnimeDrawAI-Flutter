@@ -323,7 +323,11 @@ class _ShopItemCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 4),
-                    const Icon(Icons.diamond, size: 12, color: Colors.white),
+                    const Icon(
+                      Icons.diamond,
+                      size: 12,
+                      color: Color(0xFFE91E63),
+                    ),
                   ] else if (item.costUsd != null)
                     Text(
                       "\$${item.costUsd}",

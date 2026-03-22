@@ -246,6 +246,17 @@ class _PostCard extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      GestureDetector(
+                        onTap: () => _reportPost(context),
+                        child: const Padding(
+                          padding: EdgeInsets.only(left: 4.0),
+                          child: Icon(
+                            Icons.more_vert,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 8),
@@ -270,6 +281,88 @@ class _PostCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Future<void> _reportPost(BuildContext context) async {
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Report Post'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Please provide a reason for reporting this post for inappropriate content:',
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                hintText: 'Enter reason here...',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Report', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && context.mounted) {
+      final reason = reasonController.text.trim();
+      if (reason.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Please enter a reason')));
+        return;
+      }
+
+      final repo = Provider.of<CommunityRepository>(context, listen: false);
+      try {
+        await repo.reportPost(
+          postId: post.id,
+          reason: reason,
+          prompt: post.prompt,
+          negativePrompt: post.negativePrompt,
+          workflow: post.workflow,
+          imageUrl: post.imageUrl,
+        );
+        if (context.mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Report Submitted'),
+              content: const Text(
+                'Thank you for reporting this content. Our moderators will review it shortly.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error reporting post: $e')));
+        }
+      }
+    }
   }
 
   Future<void> _showPostDetails(BuildContext context) async {

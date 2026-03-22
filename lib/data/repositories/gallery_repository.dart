@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import '../models/gallery_model.dart';
 import '../models/generation_model.dart';
 import '../services/local_gallery_service.dart';
@@ -113,5 +115,34 @@ class GalleryRepository {
     try {
       await _localService.clearAllImages();
     } catch (_) {}
+  }
+
+  Future<void> reportImage({
+    required String imageId,
+    required String prompt,
+    required String negativePrompt,
+    required String workflow,
+    required String imageUrl,
+    required String reportReason,
+  }) async {
+    try {
+      final db = FirebaseFirestore.instance;
+      final reportRef = db.collection("reports").doc();
+      await reportRef.set({
+        "id": reportRef.id,
+        "imageId": imageId,
+        "prompt": prompt,
+        "negativePrompt": negativePrompt,
+        "workflow": workflow,
+        "imageUrl": imageUrl,
+        "reportReason": reportReason,
+        "reportedAt": DateTime.now().millisecondsSinceEpoch,
+        "reportedBy": _auth.currentUser?.uid ?? "anonymous",
+        "status": "pending",
+      });
+    } catch (e) {
+      debugPrint("Error reporting image: $e");
+      rethrow;
+    }
   }
 }

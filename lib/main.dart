@@ -31,14 +31,20 @@ import 'data/providers/settings_provider.dart';
 import 'data/providers/navigation_provider.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/screens/auth/onboarding_screen.dart';
+import 'ui/screens/subscription_screen.dart';
+import 'ui/screens/profile/settings_screen.dart';
 import 'firebase_options.dart';
 
 import 'services/ad_manager.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await AdManager.initialize();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // Jalankan paralel — hemat 1-2 detik dibanding serial
+  await Future.wait([
+    AdManager.initialize(),
+    Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform),
+  ]);
 
   runApp(
     ChangeNotifierProvider(
@@ -61,8 +67,11 @@ class _AnimeDrawAppState extends State<AnimeDrawApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // Preload App Open ad on app start
-    AdManager.loadAppOpenAd();
+    // Preload App Open ad setelah frame pertama render selesai
+    // agar tidak berkompetisi dengan resource rendering awal
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AdManager.loadAppOpenAd();
+    });
   }
 
   @override
@@ -195,6 +204,10 @@ class _AnimeDrawAppState extends State<AnimeDrawApp>
         darkTheme: AppTheme.darkTheme(settings.themeColor),
         themeMode: settings.isDarkMode ? ThemeMode.dark : ThemeMode.light,
         home: const AuthWrapper(),
+        routes: {
+          '/subscription': (context) => const SubscriptionScreen(),
+          '/settings': (context) => const SettingsScreen(),
+        },
       ),
     );
   }
@@ -207,6 +220,11 @@ class AuthWrapper extends StatelessWidget {
   Widget build(BuildContext context) {
     final authRepo = Provider.of<AuthRepository>(context);
     final settings = Provider.of<SettingsProvider>(context);
+
+    // Tunggu settings selesai dimuat agar tidak flicker ke OnboardingScreen
+    if (!settings.isLoaded) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
 
     if (settings.isFirstLaunch) {
       return OnboardingScreen(onFinish: settings.setFirstLaunchComplete);

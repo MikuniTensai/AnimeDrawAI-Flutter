@@ -77,6 +77,11 @@ class _ArtDetailScreenState extends State<ArtDetailScreen> {
         actions: [
           if (widget.isFromGallery) ...[
             IconButton(
+              icon: const Icon(Icons.flag_outlined, color: Colors.white),
+              onPressed: _reportImage,
+              tooltip: 'Report',
+            ),
+            IconButton(
               icon: Icon(
                 _isLocked ? Icons.lock_open : Icons.lock_outline,
                 color: Colors.white,
@@ -470,6 +475,91 @@ class _ArtDetailScreenState extends State<ArtDetailScreen> {
 
   void _shareImage() {
     _publishToCommunity();
+  }
+
+  Future<void> _reportImage() async {
+    final reasonController = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Report Image'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Please provide a reason for reporting this image for inappropriate content:',
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                hintText: 'Enter reason here...',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Report', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted && widget.id != null) {
+      final reason = reasonController.text.trim();
+      if (reason.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Please enter a reason')));
+        return;
+      }
+
+      final galleryRepo = Provider.of<GalleryRepository>(
+        context,
+        listen: false,
+      );
+      try {
+        await galleryRepo.reportImage(
+          imageId: widget.id!,
+          prompt: widget.prompt ?? "",
+          negativePrompt: widget.negativePrompt ?? "",
+          workflow: widget.workflow ?? "standard",
+          imageUrl: widget.imageUrls.isNotEmpty ? widget.imageUrls[0] : "",
+          reportReason: reason,
+        );
+        if (mounted) {
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Report Submitted'),
+              content: const Text(
+                'Thank you for reporting this content. Our moderators will review it shortly.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('Error reporting image: $e')));
+        }
+      }
+    }
   }
 
   Future<void> _showGuidelinesDialog() async {

@@ -343,10 +343,17 @@ class _DailyRewardDialogState extends State<DailyRewardDialog> {
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        _getRewardIcon(reward),
-                        style: const TextStyle(fontSize: 24),
-                      ),
+                      if (reward.id == 'gems')
+                        const Icon(
+                          Icons.diamond,
+                          color: Color(0xFFE91E63),
+                          size: 28,
+                        )
+                      else
+                        Text(
+                          _getRewardIcon(reward),
+                          style: const TextStyle(fontSize: 24),
+                        ),
                       const SizedBox(width: 8),
                       Text(
                         "${reward.amount} ${reward.name.replaceAll(RegExp(r'[0-9]'), '').trim()}",

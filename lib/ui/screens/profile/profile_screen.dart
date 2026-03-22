@@ -532,7 +532,7 @@ class ProfileScreen extends StatelessWidget {
                 () => _showUsageStats(context),
               ),
               _buildMenuItem(Icons.help_outline, "Help & Support", () {
-                _launchEmailSupport();
+                _launchEmailSupport(context);
               }),
             ],
           ),
@@ -799,7 +799,7 @@ class ProfileScreen extends StatelessWidget {
     );
   }
 
-  void _launchEmailSupport() async {
+  void _launchEmailSupport(BuildContext context) async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       final deviceInfo = DeviceInfoPlugin();
@@ -826,8 +826,25 @@ class ProfileScreen extends StatelessWidget {
         },
       );
 
+      bool launched = false;
       if (await canLaunchUrl(emailLaunchUri)) {
-        await launchUrl(emailLaunchUri);
+        launched = await launchUrl(
+          emailLaunchUri,
+          mode: LaunchMode.externalApplication,
+        );
+      }
+
+      if (!launched) {
+        try {
+          await launchUrl(emailLaunchUri, mode: LaunchMode.externalApplication);
+          launched = true;
+        } catch (_) {}
+      }
+
+      if (!launched && context.mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("No email app found")));
       }
     } catch (e) {
       debugPrint("Error launching email: $e");
@@ -837,8 +854,14 @@ class ProfileScreen extends StatelessWidget {
         path: 'nitedreamworks@gmail.com',
         queryParameters: {'subject': 'Support Request'},
       );
-      if (await canLaunchUrl(simpleUri)) {
-        await launchUrl(simpleUri);
+      try {
+        await launchUrl(simpleUri, mode: LaunchMode.externalApplication);
+      } catch (e2) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Could not open email app")),
+          );
+        }
       }
     }
   }

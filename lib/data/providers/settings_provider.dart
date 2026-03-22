@@ -15,6 +15,7 @@ class SettingsProvider with ChangeNotifier {
   bool _isDarkMode = true;
   bool _isAutoSave = true;
   bool _isFirstLaunch = true;
+  bool _isLoaded = false; // guard agar AuthWrapper tidak flicker
   Color _themeColor = const Color(0xFF6650a4);
   bool _isNotificationsEnabled = true;
   String _reminderTime = "20:00"; // Format: HH:mm
@@ -29,6 +30,7 @@ class SettingsProvider with ChangeNotifier {
   bool get isDarkMode => _isDarkMode;
   bool get isAutoSave => _isAutoSave;
   bool get isFirstLaunch => _isFirstLaunch;
+  bool get isLoaded => _isLoaded;
   Color get themeColor => _themeColor;
   bool get isNotificationsEnabled => _isNotificationsEnabled;
   String get reminderTime => _reminderTime;
@@ -53,6 +55,7 @@ class SettingsProvider with ChangeNotifier {
       _themeColor = Color(colorValue);
     }
 
+    _isLoaded = true; // settings selesai dibaca
     notifyListeners();
   }
 

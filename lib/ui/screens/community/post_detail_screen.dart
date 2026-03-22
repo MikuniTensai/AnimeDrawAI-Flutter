@@ -59,12 +59,27 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   }
 
   Future<void> _reportPost() async {
+    final reasonController = TextEditingController();
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Report Post'),
-        content: const Text(
-          'Are you sure you want to report this post for inappropriate content?',
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Please provide a reason for reporting this post for inappropriate content:',
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                hintText: 'Enter reason here...',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 3,
+            ),
+          ],
         ),
         actions: [
           TextButton(
@@ -80,12 +95,39 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
 
     if (confirmed == true && mounted) {
+      final reason = reasonController.text.trim();
+      if (reason.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Please enter a reason')));
+        return;
+      }
+
       final repo = context.read<CommunityRepository>();
       try {
-        await repo.reportPost(widget.post.id, 'inappropriate_content');
+        await repo.reportPost(
+          postId: widget.post.id,
+          reason: reason,
+          prompt: widget.post.prompt,
+          negativePrompt: widget.post.negativePrompt,
+          workflow: widget.post.workflow,
+          imageUrl: widget.post.imageUrl,
+        );
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Post reported. Thank you!')),
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Report Submitted'),
+              content: const Text(
+                'Thank you for reporting this content. Our moderators will review it shortly.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
           );
         }
       } catch (e) {

@@ -136,7 +136,7 @@ class _UsageStatisticsScreenState extends State<UsageStatisticsScreen> {
                     const SizedBox(height: 12),
                     _StatCard(
                       icon: Icons.diamond,
-                      iconColor: Colors.cyanAccent,
+                      iconColor: const Color(0xFFE91E63),
                       label: 'Gems',
                       value: '${_stats?['gems'] ?? 0}',
                       subtitle: 'Current balance',

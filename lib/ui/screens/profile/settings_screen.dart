@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'dart:io';
+import 'dart:math';
 
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/drawai_repository.dart';
@@ -498,55 +499,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showMathChallenge(BuildContext context, SettingsProvider settings) {
-    final a = 12, b = 7;
-    final answer = a + b;
+    int currentQuestion = 1;
+    const int totalQuestions = 3;
+    final random = Random();
+
+    // Helper to generate a question
+    Map<String, dynamic> generateQuestion() {
+      final isAddition = random.nextBool();
+      final a = random.nextInt(40) + 10; // 10-50
+      final b = random.nextInt(9) + 1; // 1-10
+      if (isAddition) {
+        return {'text': "$a + $b", 'answer': a + b};
+      } else {
+        return {'text': "$a - $b", 'answer': a - b};
+      }
+    }
+
+    var currentQData = generateQuestion();
     final controller = TextEditingController();
 
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Security Check"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text("Please solve this to verify you are an adult:"),
-            const SizedBox(height: 16),
-            Text(
-              "$a + $b = ?",
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            title: const Text("Security Check"),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  "Question $currentQuestion of $totalQuestions",
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                const Text("Solve to verify you are an adult:"),
+                const SizedBox(height: 16),
+                Text(
+                  "${currentQData['text']} = ?",
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.number,
+                  autofocus: true,
+                  textAlign: TextAlign.center,
+                  decoration: const InputDecoration(hintText: "Answer"),
+                ),
+              ],
             ),
-            TextField(
-              controller: controller,
-              keyboardType: TextInputType.number,
-              autofocus: true,
-              textAlign: TextAlign.center,
-              decoration: const InputDecoration(hintText: "Answer"),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          TextButton(
-            onPressed: () {
-              if (int.tryParse(controller.text) == answer) {
-                settings.setRestrictedContent(true);
-                settings.setAgeVerified(true);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Content filtering disabled")),
-                );
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Incorrect answer")),
-                );
-              }
-            },
-            child: const Text("Verify"),
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("Cancel"),
+              ),
+              TextButton(
+                onPressed: () {
+                  if (int.tryParse(controller.text) == currentQData['answer']) {
+                    if (currentQuestion < totalQuestions) {
+                      setState(() {
+                        currentQuestion++;
+                        currentQData = generateQuestion();
+                        controller.clear();
+                      });
+                    } else {
+                      settings.setRestrictedContent(true);
+                      settings.setAgeVerified(true);
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Restricted content enabled"),
+                        ),
+                      );
+                    }
+                  } else {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text("Incorrect answer. Verification failed."),
+                        backgroundColor: Colors.red,
+                      ),
+                    );
+                  }
+                },
+                child: Text(
+                  currentQuestion < totalQuestions ? "Next" : "Verify",
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -725,12 +770,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _launchUrl(String url, {bool isExternal = false}) async {
     final uri = Uri.parse(url);
     if (await canLaunchUrl(uri)) {
-      await launchUrl(
-        uri,
-        mode: isExternal
-            ? LaunchMode.externalApplication
-            : LaunchMode.platformDefault,
-      );
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
     }
   }
 
@@ -745,8 +785,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
       },
     );
 
+    bool launched = false;
     if (await canLaunchUrl(emailLaunchUri)) {
-      await launchUrl(emailLaunchUri);
+      launched = await launchUrl(
+        emailLaunchUri,
+        mode: LaunchMode.externalApplication,
+      );
+    }
+
+    if (!launched) {
+      try {
+        await launchUrl(emailLaunchUri, mode: LaunchMode.externalApplication);
+        launched = true;
+      } catch (_) {}
+    }
+
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text("No email app found")));
     }
   }
 

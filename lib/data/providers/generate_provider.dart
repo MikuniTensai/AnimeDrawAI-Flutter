@@ -56,6 +56,8 @@ const _inappropriateWords = {
   'telanjang',
   'porno',
   'seks',
+  'sex',
+  'sexy',
   'vulgar',
   'cabul',
   'mesum',
@@ -101,6 +103,37 @@ const _inappropriateWords = {
   'porn',
   'adult',
   'mature',
+  'sange',
+  'coli',
+  'nenen',
+  'tetek',
+  'sepong',
+  'pecun',
+  'ngocok',
+  'colmek',
+  'crot',
+  'kentu',
+  'boobs',
+  'ass',
+  'cum',
+  'tit',
+  'nipple',
+  'clitoris',
+  'orgasm',
+  'ejaculate',
+  'bondage',
+  'masturbation',
+  'fetish',
+  'bdsm',
+  'blowjob',
+  'creampie',
+  'gangbang',
+  'milf',
+  'threesome',
+  'voyeur',
+  'horny',
+  'lewd',
+  'naughty',
 };
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -250,15 +283,23 @@ class GenerateProvider extends ChangeNotifier {
     }
 
     // Content moderation
-    final (hasInappropriate, foundWords) = checkPromptInappropriate(
+    final (hasInappropriatePos, foundWordsPos) = checkPromptInappropriate(
       positivePrompt,
     );
-    if (hasInappropriate) {
+    final (hasInappropriateNeg, foundWordsNeg) = checkPromptInappropriate(
+      negativePrompt,
+    );
+
+    if (hasInappropriatePos || hasInappropriateNeg) {
+      final allFoundWords = <String>{
+        ...foundWordsPos,
+        ...foundWordsNeg,
+      }.toList();
       _setState(
         GenerateContentModeration(
           message:
               'Prompt contains inappropriate content. Please revise your prompt.',
-          inappropriateWords: foundWords,
+          inappropriateWords: allFoundWords,
         ),
       );
       return;

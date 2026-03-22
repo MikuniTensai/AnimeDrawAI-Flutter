@@ -176,11 +176,39 @@ class CommunityRepository {
     });
   }
 
-  Future<void> reportPost(String postId, String reason) async {
+  Future<void> reportPost({
+    required String postId,
+    required String reason,
+    String? prompt,
+    String? negativePrompt,
+    String? workflow,
+    String? imageUrl,
+  }) async {
+    // 1. Update the post itself (Android parity in CommunityRepository.kt)
     await _firestore.collection(_collectionPosts).doc(postId).update({
       "reportCount": FieldValue.increment(1),
       "isReported": true,
     });
+
+    // 2. Log to central reports collection (Android parity with ReportRepository.kt)
+    try {
+      final reportRef = _firestore.collection("reports").doc();
+      await reportRef.set({
+        "id": reportRef.id,
+        "imageId": postId, // Using postId as imageId for reports
+        "prompt": prompt ?? "",
+        "negativePrompt": negativePrompt ?? "",
+        "workflow": workflow ?? "standard",
+        "imageUrl": imageUrl ?? "",
+        "reportReason": reason,
+        "reportedAt": DateTime.now().millisecondsSinceEpoch,
+        "reportedBy": _auth.currentUser?.uid ?? "anonymous",
+        "status": "pending",
+      });
+    } catch (e) {
+      debugPrint("Error logging report detail: $e");
+      // Don't rethrow here as the primary update succeeded
+    }
   }
 
   Future<void> deletePost(String postId) async {

@@ -131,9 +131,23 @@ class CommunityProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> reportPost(String postId, String reason) async {
+  Future<void> reportPost({
+    required String postId,
+    required String reason,
+    String? prompt,
+    String? negativePrompt,
+    String? workflow,
+    String? imageUrl,
+  }) async {
     try {
-      await _repository.reportPost(postId, reason);
+      await _repository.reportPost(
+        postId: postId,
+        reason: reason,
+        prompt: prompt,
+        negativePrompt: negativePrompt,
+        workflow: workflow,
+        imageUrl: imageUrl,
+      );
     } catch (e) {
       debugPrint('Failed to report post: $e');
     }
