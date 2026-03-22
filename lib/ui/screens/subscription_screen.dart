@@ -500,6 +500,21 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                                                   .withValues(alpha: 0.8),
                                             ),
                                           ),
+                                          const SizedBox(height: 8),
+                                          TextButton(
+                                            onPressed: () => billingManager
+                                                .restorePurchases(),
+                                            style: TextButton.styleFrom(
+                                              padding: EdgeInsets.zero,
+                                              minimumSize: Size.zero,
+                                              tapTargetSize:
+                                                  MaterialTapTargetSize
+                                                      .shrinkWrap,
+                                            ),
+                                            child: const Text(
+                                              "Restore Purchases",
+                                            ),
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -660,7 +675,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    "Try in 1 DAY",
+                    "Basic Daily Pass",
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
@@ -679,7 +694,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
               ),
               const SizedBox(height: 4),
               Text(
-                "Full Premium Access for 24h",
+                "Basic subscription access for 24h",
                 style: TextStyle(
                   fontSize: 12,
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.8),
@@ -696,7 +711,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                     padding: EdgeInsets.zero,
                   ),
                   onPressed: () => _handlePurchase("ONE_DAY_PASS"),
-                  child: const Text("Buy", style: TextStyle(fontSize: 12)),
+                  child: const Text(
+                    "Subscribe",
+                    style: TextStyle(fontSize: 12),
+                  ),
                 ),
               ),
             ],
@@ -781,7 +799,10 @@ class _SubscriptionScreenState extends State<SubscriptionScreen>
                     ),
                     onPressed: () =>
                         _showConfirmDialog(context, planName, price, limitText),
-                    child: const Text("Buy", style: TextStyle(fontSize: 12)),
+                    child: const Text(
+                      "Subscribe",
+                      style: TextStyle(fontSize: 12),
+                    ),
                   ),
                 ),
             ],

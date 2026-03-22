@@ -6,15 +6,17 @@ import '../data/repositories/subscription_repository.dart';
 import '../data/models/subscription_model.dart';
 
 class BillingManager extends ChangeNotifier {
-  static const String kBasicProductId = "anime_draw_basic_monthly";
-  static const String kProProductId = "anime_draw_pro_monthly";
+  static const String kBasicProductId = "sub_basic_monthly";
+  static const String kProProductId = "sub_pro_monthly";
   static const String kChatRandomProductId = "anime_draw_chat_random";
   static const String kChat1ProductId = "anime_draw_chat_1";
-  static const String kOneDayProductId = "anime_draw_1_day";
+  static const String kOneDayProductId = "sub_basic_daily";
 
   final InAppPurchase _iap = InAppPurchase.instance;
   late StreamSubscription<List<PurchaseDetails>> _subscription;
-  final SubscriptionRepository _subscriptionRepo;
+  SubscriptionRepository _subscriptionRepo;
+  String _lastSyncedUserId = "";
+  bool _silentRestoreInProgress = false;
 
   bool _isAvailable = false;
   List<ProductDetails> _products = [];
@@ -41,6 +43,19 @@ class BillingManager extends ChangeNotifier {
 
   BillingManager(this._subscriptionRepo) {
     _initialize();
+  }
+
+  void updateSubscriptionRepository(SubscriptionRepository repository) {
+    final previousUserId = _subscriptionRepo.userId;
+    _subscriptionRepo = repository;
+
+    if (repository.userId.isEmpty || repository.userId == previousUserId) {
+      return;
+    }
+
+    if (_isAvailable) {
+      unawaited(syncEntitlementsFromStore(showFeedback: false));
+    }
   }
 
   void _initialize() {
@@ -100,6 +115,10 @@ class BillingManager extends ChangeNotifier {
       }
     }
     notifyListeners();
+
+    if (_subscriptionRepo.userId.isNotEmpty) {
+      unawaited(syncEntitlementsFromStore(showFeedback: false));
+    }
   }
 
   Future<void> _listenToPurchaseUpdated(
@@ -111,7 +130,7 @@ class BillingManager extends ChangeNotifier {
       } else {
         if (purchaseDetails.status == PurchaseStatus.error) {
           debugPrint("Purchase error: ${purchaseDetails.error}");
-          onPurchaseResult?.call(
+          _emitPurchaseMessage(
             "Purchase failed: ${purchaseDetails.error?.message}",
           );
         } else if (purchaseDetails.status == PurchaseStatus.purchased ||
@@ -120,7 +139,7 @@ class BillingManager extends ChangeNotifier {
           if (valid) {
             await _deliverProduct(purchaseDetails);
           } else {
-            onPurchaseResult?.call("Purchase verification failed.");
+            _emitPurchaseMessage("Purchase verification failed.");
           }
         }
         if (purchaseDetails.pendingCompletePurchase) {
@@ -138,17 +157,26 @@ class BillingManager extends ChangeNotifier {
 
   Future<void> _deliverProduct(PurchaseDetails purchaseDetails) async {
     final String pid = purchaseDetails.productID;
+    final purchaseDate = _parsePurchaseDate(purchaseDetails.transactionDate);
 
     try {
       if (pid == kBasicProductId) {
-        await _subscriptionRepo.upgradePlan(SubscriptionPlan.basic);
-        onPurchaseResult?.call("Upgraded to BASIC plan.");
+        await _subscriptionRepo.activatePlanFromPurchase(
+          SubscriptionPlan.basic,
+          purchaseDate: purchaseDate,
+          duration: const Duration(days: 30),
+        );
+        _emitPurchaseMessage("Basic Monthly subscription activated.");
       } else if (pid == kProProductId) {
-        await _subscriptionRepo.upgradePlan(SubscriptionPlan.pro);
-        onPurchaseResult?.call("Upgraded to PRO plan.");
+        await _subscriptionRepo.activatePlanFromPurchase(
+          SubscriptionPlan.pro,
+          purchaseDate: purchaseDate,
+          duration: const Duration(days: 30),
+        );
+        _emitPurchaseMessage("Pro Monthly subscription activated.");
       } else if (pid == kChat1ProductId) {
         await _subscriptionRepo.addChatLimit(1);
-        onPurchaseResult?.call("Added 1 Chat Slot.");
+        _emitPurchaseMessage("Added 1 Chat Slot.");
       } else if (pid == kChatRandomProductId) {
         final rand = Random();
         final isJackpot = rand.nextInt(100) < 10; // 10% chance
@@ -156,12 +184,12 @@ class BillingManager extends ChangeNotifier {
         await _subscriptionRepo.addChatLimit(amount);
         onGachaResult?.call(amount);
       } else if (pid == kOneDayProductId) {
-        await _subscriptionRepo.activateDayPass();
-        onPurchaseResult?.call("1-Day Premium Access Activated!");
+        await _subscriptionRepo.activateDayPass(purchaseDate: purchaseDate);
+        _emitPurchaseMessage("Basic Daily subscription activated.");
       }
     } catch (e) {
       debugPrint("Error delivering product: $e");
-      onPurchaseResult?.call(
+      _emitPurchaseMessage(
         "Item purchased, but failed to apply to account ($e). Please contact support.",
       );
     }
@@ -175,11 +203,9 @@ class BillingManager extends ChangeNotifier {
       final PurchaseParam purchaseParam = PurchaseParam(
         productDetails: product,
       );
-      // Determine if consumable (Chat limits and One day pass are consumables)
+      // Only chat add-ons are consumables. Premium plans are subscriptions.
       final bool isConsumable =
-          productId == kChatRandomProductId ||
-          productId == kChat1ProductId ||
-          productId == kOneDayProductId;
+          productId == kChatRandomProductId || productId == kChat1ProductId;
 
       if (isConsumable) {
         await _iap.buyConsumable(purchaseParam: purchaseParam);
@@ -191,14 +217,64 @@ class BillingManager extends ChangeNotifier {
       debugPrint(
         "Product not found in store details, attempting simulated purchase flow callback.",
       );
-      onPurchaseResult?.call(
-        "Product not found in Google Play/App Store context.",
+      _emitPurchaseMessage(
+        "This plan is not available in the current store configuration.",
       );
     }
   }
 
-  Future<void> restorePurchases() async {
-    await _iap.restorePurchases();
+  Future<void> restorePurchases({bool showFeedback = true}) async {
+    if (!_isAvailable || _subscriptionRepo.userId.isEmpty) {
+      if (showFeedback) {
+        _emitPurchaseMessage(
+          "Sign in and open Google Play billing first before restoring purchases.",
+        );
+      }
+      return;
+    }
+
+    _silentRestoreInProgress = !showFeedback;
+    try {
+      await _iap.restorePurchases();
+      if (showFeedback) {
+        _emitPurchaseMessage(
+          "Restore request sent. Active subscriptions will sync shortly.",
+        );
+      }
+    } finally {
+      _silentRestoreInProgress = false;
+    }
+  }
+
+  Future<void> syncEntitlementsFromStore({bool showFeedback = false}) async {
+    final userId = _subscriptionRepo.userId;
+    if (userId.isEmpty || userId == _lastSyncedUserId) {
+      return;
+    }
+
+    _lastSyncedUserId = userId;
+    await restorePurchases(showFeedback: showFeedback);
+  }
+
+  DateTime? _parsePurchaseDate(String? transactionDate) {
+    if (transactionDate == null || transactionDate.isEmpty) {
+      return null;
+    }
+
+    final milliseconds = int.tryParse(transactionDate);
+    if (milliseconds == null) {
+      return null;
+    }
+
+    return DateTime.fromMillisecondsSinceEpoch(milliseconds);
+  }
+
+  void _emitPurchaseMessage(String message) {
+    if (_silentRestoreInProgress) {
+      return;
+    }
+
+    onPurchaseResult?.call(message);
   }
 
   @override

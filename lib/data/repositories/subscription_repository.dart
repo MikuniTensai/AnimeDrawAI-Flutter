@@ -48,31 +48,47 @@ class SubscriptionRepository {
     SubscriptionPlan plan, {
     int durationMonths = 1,
   }) async {
-    final now = DateTime.now();
-    final expiryDate = now.add(Duration(days: 30 * durationMonths));
-    final dateFormat = DateFormat('yyyy-MM-dd');
+    await activatePlanFromPurchase(
+      plan,
+      duration: Duration(days: 30 * durationMonths),
+    );
+  }
 
-    final updates = {
-      "subscriptionType": plan.name.toLowerCase(),
-      "subscriptionExpiryDate": dateFormat.format(expiryDate),
+  Future<void> activatePlanFromPurchase(
+    SubscriptionPlan plan, {
+    DateTime? purchaseDate,
+    Duration duration = const Duration(days: 30),
+  }) async {
+    _ensureUserId();
+
+    final startDate = purchaseDate ?? DateTime.now();
+    final expiryDate = startDate.add(duration);
+    final subscriptionType = plan.name.toLowerCase();
+    final subscriptionLimit = plan == SubscriptionPlan.pro ? 600 : 200;
+    final limitDoc = _firestore.collection('generation_limits').doc(userId);
+
+    final batch = _firestore.batch();
+    batch.set(_userDoc, {
+      "subscriptionType": subscriptionType,
+      "subscriptionExpiryDate": expiryDate.toIso8601String(),
       "subscriptionActive": true,
       "generationUsed": 0,
       "dailyGenerationCount": 0,
-      "subscriptionStartDate": dateFormat.format(now),
-    };
+      "subscriptionStartDate": startDate.toIso8601String(),
+      "isPremium": true,
+    }, SetOptions(merge: true));
 
-    await _userDoc.update(updates);
+    batch.set(limitDoc, {
+      'subscriptionType': subscriptionType,
+      'subscriptionEndDate': Timestamp.fromDate(expiryDate),
+      'subscriptionLimit': subscriptionLimit,
+      'subscriptionUsed': 0,
+      'isPremium': true,
+      'updatedAt': Timestamp.now(),
+      'userId': userId,
+    }, SetOptions(merge: true));
 
-    // Sync with generation_limits
-    final mappedType = plan == SubscriptionPlan.basic
-        ? "basic"
-        : (plan == SubscriptionPlan.pro ? "pro" : "free");
-    if (mappedType != "free") {
-      // In a real app, we'd use a cloud function, but here we call the repository directly
-      // Since repositories are initialized once, we might need a reference or a static call
-      // For now, assume a fresh instance works
-      // await GenerationRepository().activateSubscription(...);
-    }
+    await batch.commit();
   }
 
   Future<void> recordGeneration() async {
@@ -110,29 +126,17 @@ class SubscriptionRepository {
     }
   }
 
-  Future<void> activateDayPass() async {
-    final now = DateTime.now();
-    final expiryDate = now.add(const Duration(hours: 24));
-    final dateFormat = DateFormat('yyyy-MM-dd');
+  Future<void> activateDayPass({DateTime? purchaseDate}) async {
+    await activatePlanFromPurchase(
+      SubscriptionPlan.basic,
+      purchaseDate: purchaseDate,
+      duration: const Duration(hours: 24),
+    );
+  }
 
-    final updates = {
-      "subscriptionType": "pro", // Day pass grants PRO level implicitly
-      "subscriptionExpiryDate": dateFormat.format(expiryDate),
-      "subscriptionActive": true,
-      "generationUsed": 0,
-      "dailyGenerationCount": 0,
-      "subscriptionStartDate": dateFormat.format(now),
-    };
-
-    await _userDoc.update(updates);
-
-    // Also sync the short expiry to generation limits table
-    final limitDoc = _firestore.collection('generation_limits').doc(userId);
-    await limitDoc.update({
-      'subscriptionType': 'pro',
-      'subscriptionEndDate': Timestamp.fromDate(expiryDate),
-      'subscriptionLimit': 600, // Explicitly grant the PRO capacity
-      'subscriptionUsed': 0,
-    });
+  void _ensureUserId() {
+    if (userId.isEmpty) {
+      throw StateError('SubscriptionRepository requires a signed-in user.');
+    }
   }
 }

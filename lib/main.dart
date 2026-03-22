@@ -186,14 +186,13 @@ class _AnimeDrawAppState extends State<AnimeDrawApp>
           update: (_, repo, prev) => prev ?? InventoryProvider(repo),
         ),
         ChangeNotifierProxyProvider<SubscriptionRepository?, BillingManager>(
-          create: (_) => BillingManager(
-            SubscriptionRepository(""),
-          ), // Initialize empty, update handles real Auth payload
+          create: (_) => BillingManager(SubscriptionRepository("")),
           update: (_, repo, prev) {
-            if (repo == null) {
-              return prev ?? BillingManager(SubscriptionRepository(""));
-            }
-            return prev ?? BillingManager(repo);
+            final manager = prev ?? BillingManager(SubscriptionRepository(""));
+            manager.updateSubscriptionRepository(
+              repo ?? SubscriptionRepository(""),
+            );
+            return manager;
           },
         ),
       ],
